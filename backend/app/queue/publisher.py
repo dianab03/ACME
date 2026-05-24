@@ -1,20 +1,9 @@
-import json
-import pika
+from redis import Redis
+from rq import Queue
 from app.config import settings
+from app.worker.worker import process_job_message
 
 def publish_ingest_job(message: dict) -> None:
-    """Publish a job message to the ingestion_jobs queue"""
-    connection = pika.BlockingConnection(
-        pika.URLParameters(settings.rabbitmq_url)
-    )
-
-    channel = connection.channel()
-    channel.queue_declare(queue="ingestion_jobs", durable=True)
-    channel.basic_publish(
-        exchange = "",
-        routing_key = "ingestion_jobs",
-        body = json.dumps(message),
-        properties = pika.BasicProperties(delivery_mode = 2), # persistant
-    )
-
-    connection.close()
+    conn = Redis.from_url(settings.redis_url)
+    q = Queue("ingestion_jobs", connection=conn)
+    q.enqueue(process_job_message, message)

@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from app.assistant.client import OllamaClient
+from app.assistant.client import MAX_ITERATIONS, OllamaClient
 
 
 def _make_client() -> OllamaClient:
@@ -19,44 +19,53 @@ def _make_resp(content=None, tool_calls=None):
     return resp
 
 
-def test_single_turn_no_tools():
-    """Ollama responds with text immediately — no tool calls."""
-    mock_resp = _make_resp(content="The answer is 42.")
+def test_single_turn_no_tools_forces_tool_then_grounded_answer():
+    no_tool_resp = _make_resp(content="I can answer directly.")
+    tool_resp = _make_resp(tool_calls=[{"function": {"name": "list_instruments", "arguments": {}}}])
+    final_resp = _make_resp(content="Done.")
 
-    with patch("httpx.post", return_value=mock_resp):
-        answer, tools_used = _make_client().chat("Question?", session=None)
+    with patch("httpx.post", side_effect=[no_tool_resp, tool_resp, final_resp]):
+        with patch(
+            "app.assistant.client.execute_tool",
+            return_value='[{"instrument_id":"00000000-0000-0000-0000-000000000001","symbol":"MSFT"}]',
+        ):
+            answer, tools_used = _make_client().chat("Question?", session=None)
 
-    assert answer == "The answer is 42."
-    assert tools_used == []
-
-
-def test_one_tool_call_then_answer():
-    """Ollama requests one tool call, then gives a final text answer."""
-    tool_resp = _make_resp(tool_calls=[
-        {"function": {"name": "list_instruments", "arguments": {}}}
-    ])
-    answer_resp = _make_resp(content="Here are the instruments.")
-
-    mock_session = MagicMock()
-
-    with patch("httpx.post", side_effect=[tool_resp, answer_resp]):
-        with patch("app.assistant.client.execute_tool", return_value='[]') as mock_exec:
-            answer, tools_used = _make_client().chat("List all instruments", session=mock_session)
-
-    assert answer == "Here are the instruments."
     assert tools_used == ["list_instruments"]
-    mock_exec.assert_called_once_with("list_instruments", {}, mock_session)
+    assert "Found 1 instruments" in answer
+    assert "Grounding evidence:" in answer
 
 
-def test_max_iterations_returns_fallback():
-    """When Ollama always returns tool calls, loop exits after MAX_ITERATIONS."""
-    tool_resp = _make_resp(tool_calls=[
-        {"function": {"name": "list_instruments", "arguments": {}}}
-    ])
+def test_two_tool_calls_generate_analytics_summary():
+    tool_resp_1 = _make_resp(tool_calls=[{"function": {"name": "list_instruments", "arguments": {}}}])
+    tool_resp_2 = _make_resp(tool_calls=[{"function": {"name": "get_analytics", "arguments": {}}}])
+    final_resp = _make_resp(content="All good.")
+
+    with patch("httpx.post", side_effect=[tool_resp_1, tool_resp_2, final_resp]):
+        with patch(
+            "app.assistant.client.execute_tool",
+            side_effect=[
+                '[{"instrument_id":"00000000-0000-0000-0000-000000000001","symbol":"MSFT"}]',
+                '{"count":10,"min_close":"1","max_close":"2","avg_close":"1.5","total_volume":100}',
+            ],
+        ):
+            answer, tools_used = _make_client().chat("Give analytics summary.", session=MagicMock())
+
+    assert tools_used == ["list_instruments", "get_analytics"]
+    assert "Analytics summary:" in answer
+    assert "avg_close=1.5" in answer
+    assert "Grounding evidence:" in answer
+
+
+def test_max_iterations_still_returns_grounded_payload():
+    tool_resp = _make_resp(tool_calls=[{"function": {"name": "list_instruments", "arguments": {}}}])
 
     with patch("httpx.post", return_value=tool_resp):
-        with patch("app.assistant.client.execute_tool", return_value="[]"):
+        with patch(
+            "app.assistant.client.execute_tool",
+            return_value='[{"instrument_id":"00000000-0000-0000-0000-000000000001","symbol":"MSFT"}]',
+        ):
             answer, tools_used = _make_client().chat("Loop forever", session=MagicMock())
 
-    assert answer == "I could not determine an answer."
-    assert len(tools_used) == 5  # MAX_ITERATIONS
+    assert len(tools_used) == MAX_ITERATIONS
+    assert "Found 1 instruments" in answer

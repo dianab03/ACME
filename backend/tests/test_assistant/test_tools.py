@@ -124,3 +124,47 @@ def test_get_analytics_returns_aggregation_dict(mock_session):
     assert data["count"] == 1
     assert data["avg_close"] == "150.0"
     assert data["total_volume"] == 1000000
+
+
+def test_get_trend_returns_direction(mock_session):
+    instrument_id = uuid4()
+    source_id = uuid4()
+    row_a = _make_ts_row(instrument_id, source_id)
+    row_a.record_date = date(2024, 1, 1)
+    row_a.close_price = Decimal("100.0")
+    row_b = _make_ts_row(instrument_id, source_id)
+    row_b.record_date = date(2024, 1, 2)
+    row_b.close_price = Decimal("120.0")
+    mock_session.execute.return_value = [row_a, row_b]
+
+    result = execute_tool("get_trend", {
+        "instrument_id": str(instrument_id),
+        "source_id": str(source_id),
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+    }, mock_session)
+    data = json.loads(result)
+    assert data["direction"] == "up"
+    assert data["change"] == "20.0"
+
+
+def test_compare_assets_returns_counts(mock_session):
+    instrument_a_id = uuid4()
+    instrument_b_id = uuid4()
+    source_id = uuid4()
+    row_a = _make_ts_row(instrument_a_id, source_id)
+    row_a.close_price = Decimal("10.0")
+    row_b = _make_ts_row(instrument_b_id, source_id)
+    row_b.close_price = Decimal("20.0")
+    mock_session.execute.side_effect = [[row_a], [row_b]]
+
+    result = execute_tool("compare_assets", {
+        "source_id": str(source_id),
+        "instrument_a_id": str(instrument_a_id),
+        "instrument_b_id": str(instrument_b_id),
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+    }, mock_session)
+    data = json.loads(result)
+    assert data["instrument_a_count"] == 1
+    assert data["instrument_b_count"] == 1

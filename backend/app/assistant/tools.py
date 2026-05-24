@@ -5,7 +5,13 @@ from uuid import UUID
 from app.db.repositories.instrument import InstrumentRepository
 from app.db.repositories.data_source import DataSourceRepository
 from app.db.repositories.time_series import TimeSeriesRepository
-from app.analytics.aggregations import compute_aggregations
+from app.analytics.aggregations import (
+    compare_assets,
+    compute_aggregations,
+    compute_risk_signal,
+    forecast_next_close,
+    summarize_trend,
+)
 
 TOOL_SCHEMAS = [
     {
@@ -107,6 +113,75 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_trend",
+            "description": "Summarize trend direction and percentage change for an instrument over a date range.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instrument_id": {"type": "string"},
+                    "source_id": {"type": "string"},
+                    "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+                "required": ["instrument_id", "source_id", "start_date", "end_date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_forecast",
+            "description": "Return a simple next-close forecast for an instrument.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instrument_id": {"type": "string"},
+                    "source_id": {"type": "string"},
+                    "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+                "required": ["instrument_id", "source_id", "start_date", "end_date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_risk_signal",
+            "description": "Return risk signal (low/medium/high), volatility and drawdown.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instrument_id": {"type": "string"},
+                    "source_id": {"type": "string"},
+                    "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+                "required": ["instrument_id", "source_id", "start_date", "end_date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_assets",
+            "description": "Compare two instruments from the same source over a date range.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source_id": {"type": "string"},
+                    "instrument_a_id": {"type": "string"},
+                    "instrument_b_id": {"type": "string"},
+                    "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+                "required": ["source_id", "instrument_a_id", "instrument_b_id", "start_date", "end_date"],
+            },
+        },
+    },
 ]
 
 
@@ -190,6 +265,79 @@ def execute_tool(name: str, args: dict, session) -> str:
                 "max_close": str(agg.max_close) if agg.max_close is not None else None,
                 "avg_close": str(agg.avg_close) if agg.avg_close is not None else None,
                 "total_volume": agg.total_volume,
+            })
+        elif name == "get_trend":
+            repo = TimeSeriesRepository(session)
+            points = repo.find_range(
+                UUID(args["instrument_id"]),
+                UUID(args["source_id"]),
+                date.fromisoformat(args["start_date"]),
+                date.fromisoformat(args["end_date"]),
+            )
+            trend = summarize_trend(points)
+            return json.dumps({
+                "direction": trend.direction,
+                "start_close": str(trend.start_close) if trend.start_close is not None else None,
+                "end_close": str(trend.end_close) if trend.end_close is not None else None,
+                "change": str(trend.change) if trend.change is not None else None,
+                "change_pct": str(trend.change_pct) if trend.change_pct is not None else None,
+            })
+        elif name == "get_forecast":
+            repo = TimeSeriesRepository(session)
+            points = repo.find_range(
+                UUID(args["instrument_id"]),
+                UUID(args["source_id"]),
+                date.fromisoformat(args["start_date"]),
+                date.fromisoformat(args["end_date"]),
+            )
+            forecast = forecast_next_close(points)
+            return json.dumps({
+                "method": forecast.method,
+                "predicted_next_close": (
+                    str(forecast.predicted_next_close) if forecast.predicted_next_close is not None else None
+                ),
+            })
+        elif name == "get_risk_signal":
+            repo = TimeSeriesRepository(session)
+            points = repo.find_range(
+                UUID(args["instrument_id"]),
+                UUID(args["source_id"]),
+                date.fromisoformat(args["start_date"]),
+                date.fromisoformat(args["end_date"]),
+            )
+            risk = compute_risk_signal(points)
+            return json.dumps({
+                "signal": risk.signal,
+                "volatility_pct": str(risk.volatility_pct) if risk.volatility_pct is not None else None,
+                "max_drawdown_pct": str(risk.max_drawdown_pct) if risk.max_drawdown_pct is not None else None,
+                "summary": risk.summary,
+            })
+        elif name == "compare_assets":
+            repo = TimeSeriesRepository(session)
+            comparison = compare_assets(
+                repo.find_range(
+                    UUID(args["instrument_a_id"]),
+                    UUID(args["source_id"]),
+                    date.fromisoformat(args["start_date"]),
+                    date.fromisoformat(args["end_date"]),
+                ),
+                repo.find_range(
+                    UUID(args["instrument_b_id"]),
+                    UUID(args["source_id"]),
+                    date.fromisoformat(args["start_date"]),
+                    date.fromisoformat(args["end_date"]),
+                ),
+            )
+            agg_a = comparison["asset_a"]
+            agg_b = comparison["asset_b"]
+            return json.dumps({
+                "instrument_a_count": agg_a.count,
+                "instrument_b_count": agg_b.count,
+                "instrument_a_avg_close": str(agg_a.avg_close) if agg_a.avg_close is not None else None,
+                "instrument_b_avg_close": str(agg_b.avg_close) if agg_b.avg_close is not None else None,
+                "avg_close_diff": (
+                    str(comparison["avg_close_diff"]) if comparison["avg_close_diff"] is not None else None
+                ),
             })
 
         else:

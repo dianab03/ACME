@@ -2,7 +2,13 @@ from decimal import Decimal
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from app.analytics.aggregations import compute_aggregations
+from app.analytics.aggregations import (
+    compare_assets,
+    compute_aggregations,
+    compute_risk_signal,
+    forecast_next_close,
+    summarize_trend,
+)
 from app.models.time_series import TimeSeriesPoint
 
 
@@ -62,3 +68,47 @@ def test_null_close_price_excluded_from_stats():
     assert result.min_close == Decimal("100.0")
     assert result.max_close == Decimal("100.0")
     assert result.total_volume == 1000
+
+
+def test_summarize_trend_detects_upward_direction():
+    points = [
+        _make_point(close_price=Decimal("100.0")),
+        _make_point(close_price=Decimal("120.0")),
+    ]
+    result = summarize_trend(points)
+    assert result.direction == "up"
+    assert result.change == Decimal("20.0")
+
+
+def test_forecast_uses_last_close():
+    points = [
+        _make_point(close_price=Decimal("101.0")),
+        _make_point(close_price=Decimal("103.5")),
+    ]
+    result = forecast_next_close(points)
+    assert result.predicted_next_close == Decimal("103.5")
+
+
+def test_compare_assets_reports_avg_difference():
+    a_points = [
+        _make_point(close_price=Decimal("10.0")),
+        _make_point(close_price=Decimal("14.0")),
+    ]
+    b_points = [
+        _make_point(close_price=Decimal("8.0")),
+        _make_point(close_price=Decimal("10.0")),
+    ]
+    result = compare_assets(a_points, b_points)
+    assert result["asset_a"].avg_close == Decimal("12.0")
+    assert result["asset_b"].avg_close == Decimal("9.0")
+    assert result["avg_close_diff"] == Decimal("3.0")
+
+
+def test_compute_risk_signal_classifies_high_when_drawdown_large():
+    points = [
+        _make_point(close_price=Decimal("100.0")),
+        _make_point(close_price=Decimal("80.0")),
+    ]
+    result = compute_risk_signal(points)
+    assert result.signal == "high"
+    assert result.max_drawdown_pct == Decimal("20.0")

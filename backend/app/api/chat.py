@@ -13,7 +13,7 @@ from uuid import UUID
 from app.assistant.client import OllamaClient
 from app.config import settings
 from app.db.connection import get_session
-from backend.app.db.repositories.llm_query_log import LLMQueryLogRepository
+from app.db.repositories.llm_query_log import LLMQueryLogRepository
 from app.models.llm_query_log import LLMQueryLog
 
 router = APIRouter()
@@ -59,6 +59,8 @@ def chat(
         answer, tool_calls_used = client.chat(request.question, db_session)
     except httpx.ConnectError as e:
         raise HTTPException(status_code=503, detail=f"Ollama unavailable: {e}")
+    except httpx.ReadTimeout as e:
+        raise HTTPException(status_code=504, detail=f"Ollama timeout: {e}")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"Ollama error: {e.response.status_code}")
 

@@ -128,12 +128,28 @@ class TimeSeriesRepository(WarehouseRepository[TimeSeriesPoint, tuple]):
         return results
 
     @staticmethod
+    def _normalize_record_date(raw_date) -> date:
+        if raw_date is None:
+            raise ValueError("record_date is missing")
+        if isinstance(raw_date, date):
+            return raw_date
+        # Cassandra driver can return cassandra.util.Date, which exposes .date().
+        if hasattr(raw_date, "date") and callable(raw_date.date):
+            maybe_date = raw_date.date()
+            if isinstance(maybe_date, date):
+                return maybe_date
+        # Fallback for date-like objects exposing year/month/day.
+        if all(hasattr(raw_date, attr) for attr in ("year", "month", "day")):
+            return date(int(raw_date.year), int(raw_date.month), int(raw_date.day))
+        raise ValueError(f"Unsupported record_date type: {type(raw_date)!r}")
+
+    @staticmethod
     def _row_to_model(row) -> TimeSeriesPoint:
         return TimeSeriesPoint(
             instrument_id=row.instrument_id,
             source_id=row.source_id,
             record_year=row.record_year,
-            record_date=row.record_date,
+            record_date=TimeSeriesRepository._normalize_record_date(row.record_date),
             system_date=row.system_date,
             open_price=getattr(row, "open_price", None),
             close_price=getattr(row, "close_price", None),
@@ -143,6 +159,6 @@ class TimeSeriesRepository(WarehouseRepository[TimeSeriesPoint, tuple]):
             volume=getattr(row, "volume", None),
             ex_dividend=getattr(row, "ex_dividend", None),
             split_ratio=getattr(row, "split_ratio", None),
-            extra_indicators=getattr(row, "extra_indicators", None),
+            extra_indicators=getattr(row, "extra_indicators", None) or {},
             ingested_at=row.ingested_at,
         )
