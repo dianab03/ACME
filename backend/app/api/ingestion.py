@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from app.db.connection import get_session
 from app.db.repositories.ingest_job import IngestJobRepository
+from app.models.ingest_job import IngestJob
 from app.queue.publisher import publish_ingest_job
 
 router = APIRouter()
@@ -33,6 +34,7 @@ def trigger_ingestion(request: IngestRequest):
     """Publish ingestion jobs to the queue. Returns job IDs immediately."""
     now = datetime.now(timezone.utc)
     queued = []
+    repo = IngestJobRepository(get_session())
 
     for symbol in request.symbols:
         job_id = uuid4()
@@ -45,6 +47,13 @@ def trigger_ingestion(request: IngestRequest):
             "currency": request.currency,
         }
         try:
+            repo.save(IngestJob(
+                job_id=job_id,
+                symbol=symbol,
+                datatable_code=request.datatable_code,
+                status="queued",
+                queued_at=now,
+            ))
             publish_ingest_job(message)
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Queue unavailable: {e}")

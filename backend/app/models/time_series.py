@@ -7,7 +7,7 @@ class TimeSeriesPoint(BaseModel):
     instrument_id: UUID
     source_id: UUID
     record_year: int # Cassandra partition bucket derives from record_date.year
-    record_date: datetime
+    record_date: date
     system_date: datetime
     open_price: Decimal | None = None
     close_price: Decimal | None = None

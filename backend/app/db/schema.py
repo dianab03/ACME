@@ -25,17 +25,6 @@ WITH replication = {replication};
 
 SCHEMA_STATEMENTS = [
     """
-    CREATE TABLE IF NOT EXISTS exchanges (
-        exchange_id UUID PRIMARY KEY,
-        exchange_name TEXT,
-        country TEXT,
-        timezone TEXT,
-        currency TEXT,
-        open_time TEXT,
-        close_time TEXT
-    )
-    """,
-    """
     CREATE TABLE IF NOT EXISTS financial_instruments (
         instrument_id UUID PRIMARY KEY,
         symbol TEXT,
@@ -46,17 +35,6 @@ SCHEMA_STATEMENTS = [
         exchange_id UUID,
         description TEXT,
         created_at TIMESTAMP
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS instruments_by_class (
-        instrument_class TEXT,
-        symbol TEXT,
-        instrument_id UUID,
-        name TEXT,
-        region TEXT,
-        exchange_id UUID,
-        PRIMARY KEY (instrument_class, symbol)
     )
     """,
     """
@@ -130,93 +108,6 @@ SCHEMA_STATEMENTS = [
         duration_ms BIGINT,
         PRIMARY KEY ((source_id, log_year), ingested_at)
     ) WITH CLUSTERING ORDER BY (ingested_at DESC)
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS owners (
-        owner_id UUID PRIMARY KEY,
-        owner_type TEXT,
-        name TEXT,
-        email TEXT,
-        phone TEXT,
-        country TEXT,
-        created_at TIMESTAMP
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS users (
-        user_id UUID PRIMARY KEY,
-        owner_id UUID,
-        username TEXT,
-        role TEXT,
-        registered_at TIMESTAMP,
-        last_login_at TIMESTAMP
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS portfolios_by_owner (
-        owner_id UUID,
-        portfolio_id UUID,
-        name TEXT,
-        base_currency TEXT,
-        description TEXT,
-        created_at TIMESTAMP,
-        is_active BOOLEAN,
-        PRIMARY KEY (owner_id, portfolio_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS portfolio_assets (
-        portfolio_id UUID,
-        instrument_id UUID,
-        added_at TIMESTAMP,
-        symbol TEXT,
-        instrument_class TEXT,
-        removed_at TIMESTAMP,
-        quantity DECIMAL,
-        purchase_price DECIMAL,
-        notes TEXT,
-        PRIMARY KEY (portfolio_id, instrument_id, added_at)
-    ) WITH CLUSTERING ORDER BY (instrument_id ASC, added_at DESC)
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS analytics_results (
-        instrument_id UUID,
-        source_id UUID,
-        computed_at TIMESTAMP,
-        result_id UUID,
-        metric_type TEXT,
-        metric_value DECIMAL,
-        window_days INT,
-        notes TEXT,
-        PRIMARY KEY ((instrument_id, source_id), computed_at)
-    ) WITH CLUSTERING ORDER BY (computed_at DESC)
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS risk_signals (
-        instrument_id UUID,
-        generated_at TIMESTAMP,
-        signal_id UUID,
-        signal_type TEXT,
-        severity TEXT,
-        value DECIMAL,
-        explanation TEXT,
-        result_id UUID,
-        PRIMARY KEY (instrument_id, generated_at)
-    ) WITH CLUSTERING ORDER BY (generated_at DESC)
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS recommendations (
-        user_id UUID,
-        created_at TIMESTAMP,
-        recommendation_id UUID,
-        portfolio_id UUID,
-        signal_id UUID,
-        action TEXT,
-        rationale TEXT,
-        expires_at TIMESTAMP,
-        was_acted_on BOOLEAN,
-        PRIMARY KEY (user_id, created_at)
-    ) WITH CLUSTERING ORDER BY (created_at DESC)
     """,
     """
     CREATE TABLE IF NOT EXISTS llm_query_log (

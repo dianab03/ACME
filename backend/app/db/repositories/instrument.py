@@ -1,3 +1,6 @@
+import json
+import uuid
+from datetime import datetime, timezone
 from typing import Iterable
 from uuid import UUID
 
@@ -16,13 +19,6 @@ class InstrumentRepository(CassandraRepository, WarehouseRepository[FinancialIns
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
         )
-        self._insert_by_class = session.prepare(
-            """
-            INSERT INTO instruments_by_class
-              (instrument_class, symbol, instrument_id, name, region, exchange_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """
-        )
         self._select_by_id = session.prepare(
             "SELECT * FROM financial_instruments WHERE instrument_id = ?"
         )
@@ -32,44 +28,91 @@ class InstrumentRepository(CassandraRepository, WarehouseRepository[FinancialIns
         self._select_all = session.prepare(
             "SELECT * FROM financial_instruments"
         )
-        self._select_by_class = session.prepare(
-            "SELECT * FROM instruments_by_class WHERE instrument_class = ?"
+        self._insert_version = session.prepare(
+            """
+            INSERT INTO instrument_versions
+              (instrument_id, valid_from, version_id, change_type,
+               is_delete_marker, snapshot, valid_to, changed_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """
         )
-        self._delete_by_class = session.prepare(
-            "DELETE FROM instruments_by_class WHERE instrument_class = ? AND symbol = ?"
+        self._select_latest_version = session.prepare(
+            "SELECT * FROM instrument_versions WHERE instrument_id = ? LIMIT 1"
         )
 
     def save(self, entity: FinancialInstrument) -> FinancialInstrument:
-        self._execute(self._insert, [
-            entity.instrument_id, entity.symbol, entity.instrument_class,
-            entity.name, entity.region, entity.currency,
-            entity.exchange_id, entity.description, entity.created_at,
-        ])
-        self._execute(self._insert_by_class, [
-            entity.instrument_class, entity.symbol, entity.instrument_id,
-            entity.name, entity.region, entity.exchange_id,
+        existing = self._fetch_one(self._select_by_id, [entity.instrument_id])
+        if existing is None:
+            self._execute(self._insert, [
+                entity.instrument_id, entity.symbol, entity.instrument_class,
+                entity.name, entity.region, entity.currency,
+                entity.exchange_id, entity.description, entity.created_at,
+            ])
+            change_type = "create"
+        else:
+            # Temporal behavior: append a new version instead of mutating base row.
+            change_type = "update"
+
+        snapshot = json.dumps(entity.model_dump(mode="json"))
+        self._execute(self._insert_version, [
+            entity.instrument_id,
+            entity.created_at or datetime.now(timezone.utc),
+            uuid.uuid4(),
+            change_type,
+            False,
+            snapshot,
+            None,
+            "system",
         ])
         return entity
 
+    def mark_deleted(self, key: UUID, valid_from: datetime | None = None, changed_by: str = "system") -> None:
+        # Temporal delete: append marker version instead of deleting data.
+        row = self._fetch_one(self._select_by_id, [key])
+        if row is None:
+            return
+        self._execute(self._insert_version, [
+            key,
+            valid_from or datetime.now(timezone.utc),
+            uuid.uuid4(),
+            "delete_marker",
+            True,
+            None,
+            None,
+            changed_by,
+        ])
+
     def delete(self, key: UUID) -> None:
-        instrument = self.find_latest(key)
-        if instrument is not None:
-            self._execute(self._delete_by_class, [instrument.instrument_class, instrument.symbol])
-        self._execute(self._delete_by_id, [key])
+        self.mark_deleted(key)
 
     def delete_all(self, partition_key: UUID) -> None:
-        self._execute(self._delete_by_id, [partition_key])
+        self.delete(partition_key)
 
     def find_latest(self, partition_key: UUID) -> FinancialInstrument | None:
         row = self._fetch_one(self._select_by_id, [partition_key])
-        return self._row_to_model(row) if row else None
+        if row is None:
+            return None
+        latest_version = self._fetch_one(self._select_latest_version, [partition_key])
+        if latest_version is None:
+            return self._row_to_model(row)
+        if getattr(latest_version, "is_delete_marker", False):
+            return None
+        snapshot = getattr(latest_version, "snapshot", None)
+        if snapshot:
+            return FinancialInstrument.model_validate(json.loads(snapshot))
+        return self._row_to_model(row)
 
     def find_all(self, partition_key=None) -> Iterable[FinancialInstrument]:
         rows = self._fetch_all(self._select_all)
-        return [self._row_to_model(r) for r in rows]
+        instruments: list[FinancialInstrument] = []
+        for row in rows:
+            instrument = self.find_latest(row.instrument_id)
+            if instrument is not None:
+                instruments.append(instrument)
+        return instruments
 
     def find_all_by_class(self, instrument_class: str) -> Iterable[InstrumentSummary]:
-        rows = self._fetch_all(self._select_by_class, [instrument_class])
+        rows = self._fetch_all(self._select_all)
         return [
             InstrumentSummary(
                 instrument_id=r.instrument_id,
@@ -77,9 +120,9 @@ class InstrumentRepository(CassandraRepository, WarehouseRepository[FinancialIns
                 instrument_class=r.instrument_class,
                 name=r.name,
                 region=r.region,
-                exchange_id=getattr(r, "exchange_id", None),
             )
             for r in rows
+            if r.instrument_class == instrument_class
         ]
 
     @staticmethod

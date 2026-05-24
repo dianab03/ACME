@@ -3,7 +3,7 @@ services:
     image: cassandra:5.0
     container_name: cassandra
     ports:
-      - "9042:9042"
+      - "9043:9042"
     environment:
       - CASSANDRA_CLUSTER_NAME=financial_dw_cluster
       - CASSANDRA_DC=datacenter1
@@ -16,6 +16,20 @@ services:
     volumes:
       - cassandra_data:/var/lib/cassandra
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
   app:
     build: .
     container_name: dw_app
@@ -25,40 +39,38 @@ services:
       - .env
     environment:
       - CASSANDRA_HOSTS=cassandra
-      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
     volumes:
       - ./app/static:/app/app/static
     depends_on:
       cassandra:
         condition: service_healthy
-
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      ollama:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker:
     build: .
     container_name: dw_worker
-    command: python -m app.worker.consumer
+    command: python -m app.worker.worker
     env_file:
       - .env
     environment:
       - CASSANDRA_HOSTS=cassandra
-      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
     depends_on:
       cassandra:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   cassandra_data:
+  ollama_data:
