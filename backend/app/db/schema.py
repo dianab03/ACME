@@ -83,6 +83,33 @@ SCHEMA_STATEMENTS = [
     ) WITH CLUSTERING ORDER BY (record_date DESC, system_date DESC)
     """,
     """
+    CREATE TABLE IF NOT EXISTS daily_close_rolling_avg_by_instrument (
+        instrument_id UUID,
+        source_id UUID,
+        window_days INT,
+        record_date DATE,
+        close_price DOUBLE,
+        rolling_avg_close DOUBLE,
+        observation_count INT,
+        computed_at TIMESTAMP,
+        PRIMARY KEY ((instrument_id, source_id, window_days), record_date)
+    ) WITH CLUSTERING ORDER BY (record_date DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS close_price_predictions_by_instrument (
+        instrument_id UUID,
+        source_id UUID,
+        prediction_generated_at TIMESTAMP,
+        model_run_id TEXT,
+        last_record_date DATE,
+        predicted_next_close DOUBLE,
+        model_path TEXT,
+        training_rows INT,
+        training_rmse DOUBLE,
+        PRIMARY KEY ((instrument_id, source_id), prediction_generated_at, model_run_id)
+    ) WITH CLUSTERING ORDER BY (prediction_generated_at DESC, model_run_id ASC)
+    """,
+    """
     CREATE TABLE IF NOT EXISTS ingest_jobs (
         job_id UUID PRIMARY KEY,
         symbol TEXT,

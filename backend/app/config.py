@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     cassandra_dc: str = "datacenter1"
     cassandra_replication_strategy: str = "SimpleStrategy"
     cassandra_replication_factor: int = 1
+    cassandra_replication_dcs: str = ""
     nasdaq_base_url: str = "https://data.nasdaq.com/api/v3/datatables"
     nasdaq_api_key: str = ""
     redis_url: str = "redis://redis:6379/0"
