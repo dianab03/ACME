@@ -11,3 +11,4 @@ testcontainers==4.8.1
 redis==5.2.1
 rq==1.16.2
 aiofiles==24.1.0
+pyspark==3.5.1
