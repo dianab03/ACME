@@ -83,3 +83,10 @@ python -m app.spark_jobs.price_linear_regression --instrument-id <instrument_uui
 ```
 
 Set `CASSANDRA_HOSTS`, `CASSANDRA_PORT`, and `CASSANDRA_KEYSPACE` when running outside Docker. With the provided compose file, Cassandra is exposed on host port `9043`.
+
+## Demo
+
+<video width="100%" controls>
+  <source src="https://github.com/dianab03/ACME/releases/download/demo/demo-acme.mp4" type="video/mp4">
+  Your browser does not support the video tag. <a href="https://github.com/dianab03/ACME/releases/download/demo/demo-acme.mp4">Download the demo video</a>
+</video>
